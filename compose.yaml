@@ -1,0 +1,19 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: nis2-leads-mvp-db
+    ports:
+      - '127.0.0.1:55432:5432'
+    environment:
+      POSTGRES_USER: nis2
+      POSTGRES_PASSWORD: nis2_local_development
+      POSTGRES_DB: nis2
+    volumes:
+      - nis2-leads-mvp-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U nis2']
+      interval: 5s
+      retries: 5
+volumes:
+  nis2-leads-mvp-data:
+    name: nis2-leads-mvp-data

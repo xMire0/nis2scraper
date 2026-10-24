@@ -23,7 +23,7 @@ See: .planning/PROJECT.md (updated 2026-09-22)
 Phase: 1 of 3 (Driftbar CVRbasen-discovery)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-09-22 — Roadmap oprettet med fuld v1-kravdækning
+Last activity: 2026-09-22 — Lead-enrichment implementeret efter særskilt plan i docs/LEAD-ENRICHMENT-PLAN.md; formelle GSD-faser er ikke afsluttet
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -63,7 +63,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 1]: Live discovery kræver en gyldig server-side `CVRBASEN_API_KEY` til end-to-end-verifikation.
+- [Phase 1]: Live discovery samt direkte virksomheds- og regnskabsopslag er verificeret. API-kald bruger scalar branchepræfiks; NORMAL/Aktiv gennemløbes separat. Nøglen ligger kun server-side.
 - [Phase 2]: Crawlerens DNS-, redirect- og SSRF-grænser er sikkerhedskritiske og kræver målrettet regressionstest ved ændringer.
 - [Phase 3]: Intelligence-ruten kan aktuelt eksponere interne fejltekster og mangler databaseunderstøttede API-flowtests.
 
@@ -78,5 +78,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-09-22
-Stopped at: Roadmap og state initialiseret; Phase 1 er klar til planlægning
+Stopped at: Lead-enrichment leveret efter docs/LEAD-ENRICHMENT-PLAN.md; næste formelle GSD-plan skal tage højde for den eksisterende implementering og verificere fasekravene
 Resume file: None

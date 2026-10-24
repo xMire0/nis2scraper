@@ -1,0 +1,598 @@
+// ---------------------------------------------------------------------------
+// NIS2 Prospecting Platform — data model
+// PostgreSQL / Supabase.  `pnpm prisma migrate dev` to apply.
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearchPostgres"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ===========================================================================
+// Enums
+// ===========================================================================
+
+enum CompanyStatus {
+  ACTIVE // NORMAL
+  UNDER_BANKRUPTCY // UNDERKONKURS
+  UNDER_DISSOLUTION // UNDEROPLOESNING / TVANGSOPLOEST
+  DISSOLVED // OPLOEST
+  UNKNOWN
+}
+
+/// Result of the combined deterministic + LLM scoping run.
+enum Nis2Status {
+  ESSENTIAL /// Bilag 1 sector AND above the medium-size ceiling, or size-exempt essential
+  IMPORTANT /// Bilag 1 medium-sized, or any Bilag 2 entity at/above medium size
+  SUPPLY_CHAIN_TARGET /// Not directly in scope, but supplies in-scope entities (art. 21(2)(d))
+  OUT_OF_SCOPE
+  NEEDS_REVIEW /// Conflicting signals — parked for a human
+}
+
+/// The 18 sectors of NIS2 Annex I + Annex II.
+enum Nis2Sector {
+  // --- Annex I — sectors of high criticality (11) ---
+  ENERGY
+  TRANSPORT
+  BANKING
+  FINANCIAL_MARKET_INFRASTRUCTURE
+  HEALTH
+  DRINKING_WATER
+  WASTE_WATER
+  DIGITAL_INFRASTRUCTURE
+  ICT_SERVICE_MANAGEMENT
+  PUBLIC_ADMINISTRATION
+  SPACE
+
+  // --- Annex II — other critical sectors (7) ---
+  POSTAL_AND_COURIER
+  WASTE_MANAGEMENT
+  CHEMICALS
+  FOOD
+  MANUFACTURING
+  DIGITAL_PROVIDERS
+  RESEARCH
+
+  NONE
+}
+
+enum AnnexType {
+  ANNEX_1
+  ANNEX_2
+  NONE
+}
+
+/// EU Recommendation 2003/361 size class — the gate NIS2 art. 2(1) hangs on.
+enum SizeClass {
+  MICRO
+  SMALL
+  MEDIUM
+  LARGE
+  UNKNOWN
+}
+
+enum OutreachStatus {
+  NEW
+  QUALIFIED
+  CONTACTED
+  MEETING_SET
+  CLOSED_WON
+  CLOSED_LOST
+  DISQUALIFIED
+  RESEARCHED
+  READY
+  SCOPE
+  OFFER
+}
+
+enum ContactSource {
+  CVR_DIREKTION
+  CVR_BESTYRELSE
+  CVR_REELLE_EJERE
+  APOLLO
+  HUNTER
+  DROPCONTACT
+  MANUAL
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  VERIFIED
+  ACCEPT_ALL /// catch-all domain — deliverable but unverifiable
+  INVALID
+}
+
+enum ReportFormat {
+  XBRL
+  IXBRL
+  PDF
+}
+
+enum PipelineRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  PARTIAL
+}
+
+// ===========================================================================
+// Core entities
+// ===========================================================================
+
+model Company {
+  id        String @id @default(cuid())
+  /// 8-digit Danish CVR number. Natural key.
+  cvr       String @unique
+  name      String
+  legalForm String? // "Aktieselskab", "Anpartsselskab", ...
+
+  // --- Address (registered / beliggenhedsadresse) ---
+  addressStreet     String?
+  addressPostalCode String?
+  addressCity       String?
+  addressMunicipality String?
+  addressCountry    String? @default("DK")
+
+  // --- Industry ---
+  db07Code        String? // e.g. "62.03"
+  db07Description String?
+  secondaryDb07   String[] @default([])
+
+  // --- Size ---
+  employeeCount        Int?
+  employeeCountSource  String? // "cvr_aarsbeskaeftigelse" | "annual_report" | "manual"
+  employeeCountAsOf    DateTime?
+
+  // --- Contact surface ---
+  officialEmail String?
+  officialPhone String?
+  domain        String? // normalised, no scheme/www — used as enrichment key
+  website       String?
+
+  status        CompanyStatus @default(UNKNOWN)
+  statusRaw     String?
+  foundedAt     DateTime?
+  isListed      Boolean       @default(false)
+
+  // --- Group structure: matters because size caps are computed on
+  //     linked/partner enterprises, not on the legal entity alone. ---
+  parentCvr     String?
+  isGroupParent Boolean @default(false)
+
+  cvrUpdatedAt DateTime? // "sidstOpdateret" from the registry
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  contacts       ContactPerson[]
+  financials     FinancialData[]
+  assessments    Nis2Assessment[]
+  outreach       LeadOutreachStatus?
+  pipelineEvents PipelineEvent[]
+  employeeMin Int?
+  employeeMax Int?
+  importedRevenue Decimal? @db.Decimal(18, 2)
+  importSource String?
+  advertisingProtected Boolean?
+  registryFetchedAt DateTime?
+  registrySourceUrl String?
+  websiteHint String?
+  websiteDiscovery Json?
+  autoEnrichmentStep String @default("PROFILE")
+  autoEnrichmentNextAt DateTime @default(now())
+  autoEnrichmentError String?
+  autoEnrichmentQueuedAt DateTime?
+  autoEnrichmentStartedAt DateTime?
+  autoEnrichmentNote String?
+  autoEnrichmentScoreId String?
+  termsCheckedAt DateTime?
+  termsNote String?
+  leadRuns EnrichmentRun[]
+  evidence Evidence[]
+  scores LeadScore[]
+  publicContacts PublicContact[]
+  drafts OutreachDraft[]
+  importRows ImportRow[]
+
+  @@index([db07Code])
+  @@index([status])
+  @@index([employeeCount])
+  @@index([domain])
+  @@map("companies")
+}
+
+model ContactPerson {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// Person identifier from CVR (enhedsNummer) when the contact came from the registry.
+  cvrUnitNumber String?
+
+  name  String
+  /// Raw role as registered ("ADM. DIR.", "BESTYRELSESMEDLEM").
+  rawTitle String?
+  /// Normalised, e.g. CEO / CFO / CISO / IT_DIRECTOR / BOARD_MEMBER.
+  title    String?
+  /// 0–100. Drives which contact the outreach teaser addresses.
+  seniorityScore Int @default(0)
+  isPrimary      Boolean @default(false)
+
+  directEmail   String?
+  emailStatus   VerificationStatus @default(UNVERIFIED)
+  emailConfidence Float?
+  directPhone   String?
+  linkedinUrl   String?
+
+  source        ContactSource
+  enrichedAt    DateTime?
+  enrichmentRaw Json?
+
+  /// GDPR art. 21 — set when a person objects; suppresses re-enrichment.
+  suppressed    Boolean  @default(false)
+  suppressedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, name, source])
+  @@index([companyId, seniorityScore])
+  @@index([directEmail])
+  @@map("contact_persons")
+}
+
+model FinancialData {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  year          Int
+  periodStart   DateTime?
+  periodEnd     DateTime?
+  currency      String  @default("DKK")
+
+  /// Nettoomsætning. Null is normal: accounting class B may omit it.
+  revenue       Decimal? @db.Decimal(18, 2)
+  /// Bruttofortjeneste — the class-B fallback when revenue is withheld.
+  grossProfit   Decimal? @db.Decimal(18, 2)
+  /// Balancesum (total assets).
+  balanceSheet  Decimal? @db.Decimal(18, 2)
+  equity        Decimal? @db.Decimal(18, 2)
+  profitLoss    Decimal? @db.Decimal(18, 2)
+  employeesAvg  Int?
+
+  /// Values normalised to DKK using the rate below (for cross-currency filers).
+  revenueDkk      Decimal? @db.Decimal(18, 2)
+  balanceSheetDkk Decimal? @db.Decimal(18, 2)
+  fxRateToDkk     Float?
+
+  /// Ledelsesberetning — the free text fed to the LLM classifier.
+  managementReview String?
+
+  reportUrl     String?
+  reportFormat  ReportFormat?
+  /// Erhvervsstyrelsen publication id (offentliggørelse).
+  publicationId String?
+  publishedAt   DateTime?
+  /// SHA-256 of the fetched document, so re-parses are idempotent.
+  documentHash  String?
+
+  parseWarnings String[] @default([])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([companyId, year])
+  @@index([year])
+  @@map("financial_data")
+}
+
+model Nis2Assessment {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  status    Nis2Status
+  sector    Nis2Sector @default(NONE)
+  subSector String? // e.g. "Managed service provider", "Electricity — distribution"
+  annexType AnnexType  @default(NONE)
+
+  // --- Stage 1: deterministic ---
+  sizeClass          SizeClass @default(UNKNOWN)
+  deterministicMatch Boolean   @default(false)
+  /// True when the entity is in scope regardless of size (art. 2(2)):
+  /// DNS, TLD registries, trust services, public electronic comms, public admin.
+  sizeExempt         Boolean   @default(false)
+  employeeCountUsed  Int?
+  revenueDkkUsed     Decimal?  @db.Decimal(18, 2)
+  balanceDkkUsed     Decimal?  @db.Decimal(18, 2)
+  financialYearUsed  Int?
+  deterministicRules Json? // per-rule trace, rendered in the UI
+
+  // --- Stage 2: LLM ---
+  llmReasoning       String?
+  llmConfidence      Float?
+  llmModel           String?
+  llmSectorEvidence  String[] @default([])
+  supplyChainSignals String[] @default([])
+  /// Set when deterministic and LLM verdicts disagree.
+  conflict           Boolean  @default(false)
+  conflictNote       String?
+
+  /// 2-sentence sales hook on this company's specific cyber exposure.
+  auditHook String?
+
+  /// Human override — always wins over the pipeline on re-runs.
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  overrideStatus  Nis2Status?
+  overrideNote    String?
+
+  scopedAt   DateTime @default(now())
+  /// Bumped whenever the rule set changes, so stale rows can be re-scoped.
+  rulesetVersion String @default("2026.1")
+
+  @@index([companyId, scopedAt])
+  @@index([status])
+  @@index([sector])
+  @@index([annexType])
+  @@map("nis2_assessments")
+}
+
+model LeadOutreachStatus {
+  id        String  @id @default(cuid())
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  status     OutreachStatus @default(NEW)
+  assignedTo String?
+  nextAction String?
+  notes      String?
+  priority   Int            @default(0)
+
+  lastContactedAt DateTime?
+  nextFollowUpAt  DateTime?
+  meetingAt       DateTime?
+  closedReason    String?
+
+  history OutreachEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, assignedTo])
+  @@map("lead_outreach_status")
+}
+
+model OutreachEvent {
+  id         String             @id @default(cuid())
+  outreachId String
+  outreach   LeadOutreachStatus @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+
+  fromStatus OutreachStatus?
+  toStatus   OutreachStatus
+  note       String?
+  actor      String?
+  createdAt  DateTime @default(now())
+
+  @@index([outreachId, createdAt])
+  @@map("outreach_events")
+}
+
+// ===========================================================================
+// Pipeline observability
+// ===========================================================================
+
+model PipelineRun {
+  id     String            @id @default(cuid())
+  status PipelineRunStatus @default(QUEUED)
+
+  trigger    String? // "api" | "cron" | "manual"
+  sectors    Nis2Sector[] @default([])
+  db07Codes  String[]     @default([])
+  cvrList    String[]     @default([])
+
+  companiesDiscovered Int @default(0)
+  reportsParsed       Int @default(0)
+  companiesScoped     Int @default(0)
+  contactsEnriched    Int @default(0)
+  errorCount          Int @default(0)
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  error      String?
+
+  events PipelineEvent[]
+
+  @@index([status, startedAt])
+  @@map("pipeline_runs")
+}
+
+model PipelineEvent {
+  id    String @id @default(cuid())
+  runId String
+  run   PipelineRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  stage   String // "ingest" | "financials" | "scoping" | "enrichment"
+  level   String @default("info") // info | warn | error
+  message String
+  payload Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([runId, createdAt])
+  @@index([companyId])
+  @@map("pipeline_events")
+}
+
+model ImportBatch {
+  id String @id @default(cuid())
+  filename String
+  source String
+  rawCsv String
+  hash String
+  result Json
+  createdAt DateTime @default(now())
+  rows ImportRow[]
+  @@map("imports")
+}
+model ImportRow {
+  id String @id @default(cuid())
+  importId String
+  batch ImportBatch @relation(fields: [importId], references: [id], onDelete: Cascade)
+  companyId String?
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  rowNumber Int
+  raw Json
+  outcome String
+  message String?
+  @@index([companyId])
+  @@map("import_rows")
+}
+model EnrichmentRun {
+  id String @id @default(cuid())
+  companyId String
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  status String @default("RUNNING")
+  startedAt DateTime @default(now())
+  finishedAt DateTime?
+  pages Json @default("[]")
+  error String?
+  mode String @default("RULES")
+  model String?
+  config Json
+  evidence Evidence[]
+  score LeadScore?
+  @@index([companyId, startedAt])
+  @@map("enrichment_runs")
+}
+model Evidence {
+  id String @id @default(cuid())
+  companyId String
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  runId String
+  run EnrichmentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  url String
+  excerpt String
+  signal String
+  keyword String
+  fetchedAt DateTime @default(now())
+  contentHash String
+  @@index([companyId, runId])
+  @@map("evidence")
+}
+model LeadScore {
+  id String @id @default(cuid())
+  companyId String
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  runId String @unique
+  run EnrichmentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  value Int
+  icp Json?
+  priority String
+  segment String
+  relevance String
+  directLevel String
+  supplyLevel String
+  coverage String
+  explanation String
+  angle String
+  breakdown Json
+  evidenceIds String[]
+  configVersion Int
+  createdAt DateTime @default(now())
+  @@index([companyId, createdAt])
+  @@map("scores")
+}
+model PublicContact {
+  id String @id @default(cuid())
+  companyId String
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  value String
+  kind String
+  name String?
+  title String?
+  sourceUrl String
+  fetchedAt DateTime @default(now())
+  expiresAt DateTime
+  @@unique([companyId, value])
+  @@map("contacts")
+}
+model ContactSuppression {
+  hash String @id
+  createdAt DateTime @default(now())
+  @@map("contact_suppressions")
+}
+model OutreachDraft {
+  id String @id @default(cuid())
+  companyId String
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  channel String
+  body String
+  scoreId String?
+  createdAt DateTime @default(now())
+  @@index([companyId, createdAt])
+  @@map("outreach")
+}
+model ScoringConfig {
+  id Int @id @default(autoincrement())
+  value Json
+  createdAt DateTime @default(now())
+  @@map("scoring_configs")
+}
+model CrawlLock {
+  domain String @id
+  expiresAt DateTime
+  @@map("crawl_locks")
+}
+
+model WebsiteSearchRun {
+  id String @id @default(cuid())
+  // No company FK: deleting a lead must not reset the paid-request budget.
+  queryHash String
+  startedAt DateTime @default(now())
+  status String @default("RUNNING")
+  retryAt DateTime?
+  result Json?
+  error String?
+  @@index([startedAt])
+  @@index([queryHash, startedAt])
+  @@map("website_search_runs")
+}
+
+model DiscoveryState {
+  id String @id @default("cvrbasen")
+  config Json
+  page Int @default(1)
+  industryIndex Int @default(0)
+  statusIndex Int @default(0)
+  nextRunAt DateTime @default(now())
+  leaseUntil DateTime?
+  requestsToday Int @default(0)
+  budgetDay String @default("")
+  lastError String?
+  updatedAt DateTime @updatedAt
+  @@map("discovery_state")
+}
+model DiscoveryRun {
+  id String @id @default(cuid())
+  startedAt DateTime @default(now())
+  finishedAt DateTime?
+  status String @default("RUNNING")
+  page Int
+  examined Int @default(0)
+  added Int @default(0)
+  updated Int @default(0)
+  skipped Int @default(0)
+  reasons Json @default("{}")
+  error String?
+  @@map("discovery_runs")
+}
