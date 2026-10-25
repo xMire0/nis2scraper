@@ -54,6 +54,8 @@ Køens trin, næste forsøg og fejl gemmes pr. virksomhed. Node-serveren forsøg
 
 Integrationen følger [CVRbasens dokumentation](https://cvrbasen.dk/docs): server-side Bearer-nøgle, `POST /v1/companies/search`, ét branchepræfiks via `industry_code_start`, `sorts: "vat ASC"` og sider på 100. Indsæt `CVRBASEN_API_KEY` i `.env`, genstart, og åbn **Find virksomheder**. Brug **Find virksomheder nu**, eller aktivér automatik og gem. Live søgning, virksomhedsopslag og regnskabsopslag er valideret i den lokale opsætning den 22. september 2026. Ingen nøgle medleveres i kildekoden.
 
+Valgfri reserve: sæt `CVR_REGISTRY_PROVIDER=apicvr` for at bruge [ApiCVR](https://apicvr.dk/docs) til **Opdater CVR** (gratis, ingen nøgle på den offentlige tjeneste). ApiCVR har **ikke** branchesøgning eller regnskab, så Find virksomheder kræver fortsat CVRbasen. Se `.env.example`.
+
 Standardfilter: Danmark, NORMAL og Aktiv i separate søgninger, seneste headcount 20–250, branchepræfikser 62/63/58/26/33/71. Filtrene er redigerbare; land, størrelse og beskyttelse efterkontrolleres lokalt. Reklamebeskyttelse og ukendt beskyttelse frasorteres. Søgning gemmer ikke personfelter. **Opdater CVR** gemmer aktuelle direktørnavne/roller med kilde og 30 dages udløb samt et domænespor fra registreret e-mail; den fulde registermail gemmes ikke. Ændret beskyttelse fjerner indsamlede kontakter og udkast. Registerdata ældre end 7 dage blokerer nye analyser/udkast indtil opdatering. Dette er ikke en kontrol af samtykke til markedsføring.
 
 Medarbejderhistorikken sorteres efter år og måned. Nyeste ukendte antal bliver ikke erstattet med et gammelt tal. Gemte noter, hjemmesider og salgsstatus bevares ved registeropdatering.

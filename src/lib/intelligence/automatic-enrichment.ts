@@ -69,7 +69,10 @@ export async function runAutomaticEnrichment(
           {
             OR: [
               ...(settings.autoEnrich
-                ? [{ importSource: "CVRbasen API" }]
+                ? [
+                    { importSource: "CVRbasen API" },
+                    { importSource: "ApiCVR" },
+                  ]
                 : []),
               { autoEnrichmentQueuedAt: { not: null } },
             ],
