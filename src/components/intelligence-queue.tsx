@@ -115,11 +115,19 @@ export function EnrichmentQueue({
           behandles stadig.
         </p>
       )}
-      {!data.discovery.configured && (
+      {!(data.discovery.registryConfigured ?? data.discovery.configured) && (
         <p className="notice">
-          CVR-nøglen mangler; registertrin kan ikke gennemføres.
+          CVR-registeret er ikke klar; registertrin kan ikke gennemføres.
         </p>
       )}
+      {data.discovery.provider &&
+        !data.discovery.provider.supportsSearch &&
+        data.discovery.registryConfigured && (
+          <p className="notice">
+            {data.discovery.provider.label} er aktiv til Opdater CVR, men Find
+            virksomheder kræver CVRbasen.
+          </p>
+        )}
       {data.websiteSearch.error && (
         <p className="notice">OpenAI: {data.websiteSearch.error}</p>
       )}

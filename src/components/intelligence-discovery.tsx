@@ -5,6 +5,15 @@ import type { DiscoveryConfig } from "@/lib/intelligence/cvrbasen";
 import { date } from "./intelligence-types";
 export interface Discovery {
   configured: boolean;
+  registryConfigured?: boolean;
+  provider?: {
+    id: string;
+    label: string;
+    supportsSearch: boolean;
+    supportsStatements: boolean;
+    configuredLabel: string;
+    discoveryHint: string;
+  };
   config: DiscoveryConfig;
   page: number;
   industryIndex: number;
@@ -48,7 +57,9 @@ export function DiscoveryPanel({
     <div className="discovery-layout">
       <section className="panel discovery-intro">
         <div>
-          <p className="eyebrow">CVRBASEN → JERES LEADS</p>
+          <p className="eyebrow">
+            {(data.provider?.label ?? "CVRbasen").toUpperCase()} → JERES LEADS
+          </p>
           <h2>Et løbende tilskud af relevante virksomheder</h2>
           <p>
             Find aktive danske virksomheder ud fra branche og det senest oplyste
@@ -58,14 +69,22 @@ export function DiscoveryPanel({
         </div>
         <span className="mode-pill">
           <Database size={15} />
-          {data.configured ? "API-nøgle konfigureret" : "API-nøgle mangler"}
+          {data.configured
+            ? (data.provider?.configuredLabel ?? "API-nøgle konfigureret")
+            : data.provider && !data.provider.supportsSearch
+              ? data.provider.configuredLabel
+              : "API-nøgle mangler"}
         </span>
         {!data.configured && (
           <p className="notice">
-            Tilføj <code>CVRBASEN_API_KEY</code> i serverens <code>.env</code>,
-            og genstart serveren. Nøglen opbevares kun på serveren. Et
-            abonnement hos CVRbasen kan koste penge; vores regler bruger ingen
-            AI-tokens.
+            {data.provider?.discoveryHint || (
+              <>
+                Tilføj <code>CVRBASEN_API_KEY</code> i serverens{" "}
+                <code>.env</code>, og genstart serveren. Nøglen opbevares kun på
+                serveren. Et abonnement hos CVRbasen kan koste penge; vores
+                regler bruger ingen AI-tokens.
+              </>
+            )}
           </p>
         )}
         <div className="discovery-stats">
@@ -104,7 +123,9 @@ export function DiscoveryPanel({
           onClick={() => void perform({ action: "discover" })}
         >
           <Search size={16} />
-          {busy === "discover" ? "Søger i CVRbasen…" : "Find virksomheder nu"}
+          {busy === "discover"
+            ? `Søger i ${data.provider?.label ?? "CVRbasen"}…`
+            : "Find virksomheder nu"}
         </button>
         <p className="muted">
           Nye CVR-virksomheder beriges automatisk med registerroller,

@@ -13,6 +13,10 @@ import {
   isActiveRegistry,
   type DiscoveryConfig,
 } from "./cvrbasen";
+import {
+  getRegistryProvider,
+  registrySearchReady,
+} from "./registry-provider";
 const asJson = (x: unknown) =>
   JSON.parse(JSON.stringify(x)) as Prisma.InputJsonValue;
 export async function discoveryState() {
@@ -28,10 +32,20 @@ export async function discoverySnapshot() {
     orderBy: { startedAt: "desc" },
     take: 10,
   });
+  const provider = getRegistryProvider();
   return {
     ...state,
     config: discoveryConfigSchema.parse(state.config),
-    configured: Boolean(process.env.CVRBASEN_API_KEY?.trim()),
+    configured: registrySearchReady(provider),
+    registryConfigured: provider.configured,
+    provider: {
+      id: provider.id,
+      label: provider.label,
+      supportsSearch: provider.supportsSearch,
+      supportsStatements: provider.supportsStatements,
+      configuredLabel: provider.configuredLabel,
+      discoveryHint: provider.discoveryHint,
+    },
     runs,
   };
 }
@@ -61,10 +75,13 @@ export async function saveDiscovery(config: DiscoveryConfig) {
   });
 }
 export async function runDiscovery(manual = false, search = searchRegistry) {
-  if (!process.env.CVRBASEN_API_KEY?.trim()) {
+  const provider = getRegistryProvider();
+  if (!registrySearchReady(provider)) {
     if (manual)
       throw new Error(
-        "Tilføj CVRBASEN_API_KEY i .env og genstart serveren først.",
+        provider.supportsSearch
+          ? "Tilføj CVRBASEN_API_KEY i .env og genstart serveren først."
+          : provider.discoveryHint,
       );
     return { skipped: true };
   }
@@ -83,7 +100,7 @@ export async function runDiscovery(manual = false, search = searchRegistry) {
     if (used >= config.maxRequestsPerDay) {
       if (manual)
         throw new Error(
-          "Dagens loft over CVRbasen-kald er nået (nulstilles kl. 00 UTC).",
+          `Dagens loft over ${provider.label}-kald er nået (nulstilles kl. 00 UTC).`,
         );
       return null;
     }
@@ -91,7 +108,7 @@ export async function runDiscovery(manual = false, search = searchRegistry) {
     if (state.nextRunAt > now && (!manual || state.lastError)) {
       if (manual)
         throw new Error(
-          "CVRbasen er på pause indtil " + state.nextRunAt.toISOString(),
+          `${provider.label} er på pause indtil ` + state.nextRunAt.toISOString(),
         );
       return null;
     }
@@ -194,7 +211,7 @@ export async function runDiscovery(manual = false, search = searchRegistry) {
             employeeCount: employees.headcount,
             employeeMin: employees.headcount,
             employeeMax: employees.headcount,
-            employeeCountSource: "CVRbasen",
+            employeeCountSource: provider.employeeCountSource,
             employeeCountAsOf: new Date(
               Date.UTC(employees.year, employees.month - 1, 1),
             ),
@@ -202,7 +219,7 @@ export async function runDiscovery(manual = false, search = searchRegistry) {
             statusRaw: c.status,
             advertisingProtected: false,
             registryFetchedAt: new Date(),
-            registrySourceUrl: `https://api.cvrbasen.dk/v1/companies/${c.vat}`,
+            registrySourceUrl: provider.companySourceUrl(c.vat),
           };
           if (existing) {
             await tx.company.update({ where: { id: existing.id }, data });
@@ -212,7 +229,7 @@ export async function runDiscovery(manual = false, search = searchRegistry) {
               data: {
                 cvr: c.vat,
                 ...data,
-                importSource: "CVRbasen API",
+                importSource: provider.importSourceLabel,
                 outreach: {
                   create: {
                     status: "NEW",

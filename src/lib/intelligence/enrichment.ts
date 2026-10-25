@@ -3,13 +3,17 @@ import { z } from "zod";
 import { prisma } from "../prisma";
 import { discoveryState } from "./discovery";
 import {
-  registryRequest,
   registryCompanySchema,
   discoveryConfigSchema,
   RegistryError,
   isActiveRegistry,
   latestEmployees,
 } from "./cvrbasen";
+import {
+  getRegistryProvider,
+  registryLookupReady,
+  type RegistryProvider,
+} from "./registry-provider";
 import { emailDomain, websiteCandidates, verifiedWebsite } from "./website";
 import { crawl } from "./crawler";
 import type { Config } from "./config";
@@ -20,10 +24,17 @@ const json = (v: unknown) =>
 const hash = (v: string) =>
   createHash("sha256").update(v.toLowerCase().trim()).digest("hex");
 
+type RegistryCall = (provider: RegistryProvider) => Promise<unknown>;
+
 // One shared database lease and budget for discovery, refresh and statements.
-async function budgetedRegistry(path: string) {
-  if (!process.env.CVRBASEN_API_KEY?.trim())
-    throw new Error("CVRBASEN_API_KEY mangler på serveren");
+async function budgetedRegistry(run: RegistryCall) {
+  const provider = getRegistryProvider();
+  if (!registryLookupReady(provider))
+    throw new Error(
+      provider.id === "cvrbasen"
+        ? "CVRBASEN_API_KEY mangler på serveren"
+        : `${provider.label} er ikke klar på serveren`,
+    );
   await discoveryState();
   const lease = new Date(Date.now() + 60000);
   const config = await prisma.$transaction(async (tx) => {
@@ -37,9 +48,11 @@ async function budgetedRegistry(path: string) {
     if (s.leaseUntil && s.leaseUntil > new Date())
       throw new Error("Et registeropslag kører allerede");
     if (s.lastError && s.nextRunAt > new Date())
-      throw new Error("CVRbasen er på pause. Se Find virksomheder.");
+      throw new Error(
+        `${provider.label} er på pause. Se Find virksomheder.`,
+      );
     if (used >= config.maxRequestsPerDay)
-      throw new Error("Dagens loft over CVRbasen-kald er nået");
+      throw new Error(`Dagens loft over ${provider.label}-kald er nået`);
     await tx.discoveryState.update({
       where: { id: s.id },
       data: { requestsToday: used + 1, budgetDay: day, leaseUntil: lease },
@@ -47,12 +60,12 @@ async function budgetedRegistry(path: string) {
     return config;
   });
   try {
-    const result = await registryRequest(path);
+    const result = await run(provider);
     await prisma.discoveryState.updateMany({
       where: { id: "cvrbasen", leaseUntil: lease },
       data: { lastError: null },
     });
-    return result;
+    return { result, provider };
   } catch (e) {
     await prisma.discoveryState.updateMany({
       where: { id: "cvrbasen", leaseUntil: lease },
@@ -101,12 +114,13 @@ export function currentDirectors(rows: unknown[]) {
 }
 export async function refreshCompany(id: string) {
   const company = await prisma.company.findUniqueOrThrow({ where: { id } });
-  const source = `https://api.cvrbasen.dk/v1/companies/${company.cvr}`;
-  const { data: c } = z
-    .object({ data: profileSchema })
-    .parse(await budgetedRegistry(`/companies/${company.cvr}`));
+  const { result, provider } = await budgetedRegistry((p) =>
+    p.getCompany(company.cvr),
+  );
+  const source = provider.companySourceUrl(company.cvr);
+  const { data: c } = z.object({ data: profileSchema }).parse(result);
   if (c.vat !== company.cvr)
-    throw new Error("CVRbasen returnerede et andet CVR-nummer");
+    throw new Error(`${provider.label} returnerede et andet CVR-nummer`);
   const eligible =
     isActiveRegistry(c.status) &&
     !c.end_date &&
@@ -134,7 +148,7 @@ export async function refreshCompany(id: string) {
         employeeCount: employees?.headcount ?? null,
         employeeMin: employees?.headcount ?? null,
         employeeMax: employees?.headcount ?? null,
-        employeeCountSource: "CVRbasen",
+        employeeCountSource: provider.employeeCountSource,
         employeeCountAsOf: employees
           ? new Date(Date.UTC(employees.year, employees.month - 1, 1))
           : null,
@@ -223,9 +237,19 @@ export function latestStatement(rows: unknown[]) {
 }
 export async function enrichFinancials(id: string) {
   const c = await prisma.company.findUniqueOrThrow({ where: { id } });
+  const active = getRegistryProvider();
+  if (!active.supportsStatements)
+    return {
+      ok: true,
+      message:
+        "ApiCVR understøtter ikke regnskabsopslag. Skift til CVRbasen (CVR_REGISTRY_PROVIDER=cvrbasen), eller spring regnskabstrinnet over.",
+    };
+  const { result, provider } = await budgetedRegistry((p) =>
+    p.getStatements(c.cvr),
+  );
   const { data } = z
     .object({ data: z.array(z.unknown()).max(200) })
-    .parse(await budgetedRegistry(`/companies/${c.cvr}/statements`));
+    .parse(result);
   const s = latestStatement(data);
   if (!s)
     return {
@@ -248,7 +272,7 @@ export async function enrichFinancials(id: string) {
     reportUrl,
     publishedAt: new Date(s.published_at),
     parseWarnings: [
-      `Kilde: https://api.cvrbasen.dk/v1/companies/${c.cvr}/statements`,
+      `Kilde: ${provider.statementsSourceUrl(c.cvr)}`,
       `Hentet: ${new Date().toISOString()}`,
     ],
   };
