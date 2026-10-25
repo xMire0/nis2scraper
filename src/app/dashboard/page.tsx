@@ -58,7 +58,8 @@ export default function Dashboard() {
     [status, setStatus] = useState(""),
     [relevance, setRelevance] = useState(""),
     [sort, setSort] = useState("score"),
-    [page, setPage] = useState(1);
+    [page, setPage] = useState(1),
+    [exporting, setExporting] = useState(false);
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/intelligence");
@@ -173,6 +174,48 @@ export default function Dashboard() {
     setView("companies");
     setPriority(p);
     setRelevance("");
+  }
+  async function exportFiltered() {
+    if (!filtered.length) {
+      setError("Ingen virksomheder at eksportere med de aktuelle filtre");
+      return;
+    }
+    setExporting(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({ sort });
+      if (search.trim()) params.set("search", search.trim());
+      if (priority) params.set("priority", priority);
+      if (segment) params.set("segment", segment);
+      if (status) params.set("status", status);
+      if (relevance) params.set("relevance", relevance);
+      const res = await fetch(`/api/intelligence/export?${params}`);
+      if (res.status === 401) {
+        location.href = "/login";
+        return;
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Eksporten fejlede");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download =
+        res.headers
+          .get("Content-Disposition")
+          ?.match(/filename="([^"]+)"/)?.[1] ?? "northstar-leads.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+      setToast(
+        `${filtered.length} virksomhed${filtered.length === 1 ? "" : "er"} eksporteret til Excel`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Eksporten fejlede");
+    } finally {
+      setExporting(false);
+    }
   }
   return (
     <div className="app-shell">
@@ -429,18 +472,30 @@ export default function Dashboard() {
                     næste skridt.
                   </p>
                 </div>
-                <button
-                  className="text-button"
-                  onClick={() => {
-                    setSearch("");
-                    setPriority("");
-                    setSegment("");
-                    setStatus("");
-                    setRelevance("");
-                  }}
-                >
-                  Nulstil filtre
-                </button>
+                <div className="leads-heading-actions">
+                  <button
+                    className="secondary small"
+                    disabled={exporting || !filtered.length || Boolean(busy)}
+                    onClick={() => void exportFiltered()}
+                  >
+                    <FileSpreadsheet size={15} />
+                    {exporting
+                      ? "Eksporterer…"
+                      : `Eksportér til Excel (${filtered.length})`}
+                  </button>
+                  <button
+                    className="text-button"
+                    onClick={() => {
+                      setSearch("");
+                      setPriority("");
+                      setSegment("");
+                      setStatus("");
+                      setRelevance("");
+                    }}
+                  >
+                    Nulstil filtre
+                  </button>
+                </div>
               </div>
               <div className="filter-row">
                 <label className="search-box">

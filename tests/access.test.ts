@@ -53,3 +53,27 @@ test("legacy legal-scoping endpoints are not callable", async () => {
     410,
   );
 });
+test("salesperson Excel export requires the same APP_PASSWORD session", async () => {
+  const prior = process.env.APP_PASSWORD;
+  process.env.APP_PASSWORD = "disposable-test-password";
+  try {
+    assert.equal(
+      (
+        await middleware(
+          new NextRequest("http://localhost:3000/api/intelligence/export"),
+        )
+      ).status,
+      401,
+    );
+    const token = await sessionToken(process.env.APP_PASSWORD);
+    const ok = await middleware(
+      new NextRequest("http://localhost:3000/api/intelligence/export", {
+        headers: { cookie: `nis2-session=${token}` },
+      }),
+    );
+    assert.equal(ok.status, 200);
+  } finally {
+    if (prior === undefined) delete process.env.APP_PASSWORD;
+    else process.env.APP_PASSWORD = prior;
+  }
+});

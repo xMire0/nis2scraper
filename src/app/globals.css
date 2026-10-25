@@ -695,6 +695,12 @@ strong {
   padding: 23px 24px 17px;
   gap: 15px;
 }
+.leads-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
 .leads-heading h2 {
   font-size: 16px;
 }
@@ -1041,6 +1047,20 @@ td small {
   box-shadow: -10px 0 70px #1c34201f;
   overflow: auto;
   outline: none;
+}
+.drawer-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .drawer-heading {
   display: flex;
@@ -1975,9 +1995,15 @@ td small {
   }
   .leads-heading {
     padding: 19px 16px;
+    flex-wrap: wrap;
   }
   .leads-heading p {
     max-width: 230px;
+  }
+  .leads-heading-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
   .leads-heading .text-button {
     font-size: 9px;
