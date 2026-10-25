@@ -14,6 +14,8 @@ import {
   ShieldCheck,
   FileText,
   ChevronDown,
+  FileSpreadsheet,
+  Loader2,
 } from "lucide-react";
 import {
   relevanceLabels,
@@ -60,11 +62,42 @@ export function Detail({
     if (!nextEdited) setNext(c.outreach?.nextAction ?? "");
   }, [c.outreach?.nextAction, nextEdited]);
   const [copied, setCopied] = useState(false),
-    [remove, setRemove] = useState(false);
+    [remove, setRemove] = useState(false),
+    [exporting, setExporting] = useState(false);
   const top =
     s?.evidenceIds
       .map((id) => c.evidence.find((e) => e.id === id))
       .filter(Boolean) ?? [];
+  async function exportLead() {
+    setExporting(true);
+    try {
+      const res = await fetch(
+        `/api/intelligence/export?id=${encodeURIComponent(c.id)}`,
+      );
+      if (res.status === 401) {
+        location.href = "/login";
+        return;
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Eksporten fejlede");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download =
+        res.headers
+          .get("Content-Disposition")
+          ?.match(/filename="([^"]+)"/)?.[1] ?? `northstar-lead.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Eksporten fejlede");
+    } finally {
+      setExporting(false);
+    }
+  }
   return (
     <Dialog.Root
       open
@@ -84,12 +117,26 @@ export function Detail({
                 {c.addressCity ?? "By ikke oplyst"}
               </Dialog.Description>
             </div>
-            <Dialog.Close
-              className="icon-button"
-              aria-label="Luk virksomhedsprofil"
-            >
-              <X size={20} />
-            </Dialog.Close>
+            <div className="drawer-heading-actions">
+              <button
+                className="secondary small"
+                disabled={exporting || Boolean(busy)}
+                onClick={() => void exportLead()}
+              >
+                {exporting ? (
+                  <Loader2 size={15} className="spin" />
+                ) : (
+                  <FileSpreadsheet size={15} />
+                )}
+                Eksportér til Excel
+              </button>
+              <Dialog.Close
+                className="icon-button"
+                aria-label="Luk virksomhedsprofil"
+              >
+                <X size={20} />
+              </Dialog.Close>
+            </div>
           </div>
           <div className="drawer-body">
             <div className="company-facts">
