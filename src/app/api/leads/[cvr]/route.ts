@@ -6,6 +6,7 @@ import { SECTORS, type Nis2SectorKey } from "@/domain/nis2/sectors";
 import { describeCeilings } from "@/domain/nis2/thresholds";
 import { buildTeaser } from "@/lib/teaser";
 import { toErrorMessage } from "@/lib/errors";
+import { primaryWebsitePhone } from "@/lib/intelligence/contacts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +36,10 @@ export async function GET(request: Request, context: { params: Promise<{ cvr: st
         assessments: { orderBy: { scopedAt: "desc" }, take: 5 },
         financials: { orderBy: { year: "desc" }, take: 5 },
         contacts: { where: { suppressed: false }, orderBy: { seniorityScore: "desc" } },
+        publicContacts: {
+          where: { kind: "PHONE" },
+          orderBy: { fetchedAt: "desc" },
+        },
         outreach: { include: { history: { orderBy: { createdAt: "desc" }, take: 20 } } },
       },
     });
@@ -84,7 +89,9 @@ export async function GET(request: Request, context: { params: Promise<{ cvr: st
         employeeCount: company.employeeCount,
         employeeCountSource: company.employeeCountSource,
         officialEmail: company.officialEmail,
-        officialPhone: company.officialPhone,
+        // Salesperson phone is website-crawled; never surface stale CVR as primary.
+        websitePhone: primaryWebsitePhone(company.publicContacts),
+        officialPhone: primaryWebsitePhone(company.publicContacts),
         domain: company.domain,
         website: company.website,
         status: company.status,

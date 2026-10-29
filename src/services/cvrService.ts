@@ -299,7 +299,8 @@ export function mapVrvirksomhed(source: any): CvrCompany | null {
     employeeCountSource: employees.source,
     employeeCountAsOf: employees.asOf,
     officialEmail: contacts.email,
-    officialPhone: contacts.phone,
+    // CVR telefonNummer is often outdated; salesperson phone comes from website crawl.
+    officialPhone: null,
     domain,
     website,
     status: mapStatus(statusRaw),

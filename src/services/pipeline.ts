@@ -69,7 +69,8 @@ async function upsertCompany(c: CvrCompany) {
       employeeCountSource: c.employeeCountSource,
       employeeCountAsOf: c.employeeCountAsOf,
       officialEmail: c.officialEmail,
-      officialPhone: c.officialPhone,
+      // Website crawl owns the salesperson phone; never seed from stale CVR.
+      officialPhone: null,
       domain: c.domain,
       website: c.website,
       status: c.status,
@@ -87,7 +88,7 @@ async function upsertCompany(c: CvrCompany) {
       employeeCountSource: c.employeeCountSource,
       employeeCountAsOf: c.employeeCountAsOf,
       officialEmail: c.officialEmail,
-      officialPhone: c.officialPhone,
+      // Do not overwrite website phone with CVR registry phone.
       domain: c.domain,
       website: c.website,
       status: c.status,

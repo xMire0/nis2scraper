@@ -22,6 +22,7 @@ import {
   stages,
   levelLabels,
 } from "@/lib/intelligence/config";
+import { salesFacingContacts } from "@/lib/intelligence/contacts";
 import {
   type Company,
   type Perform,
@@ -50,6 +51,7 @@ export function Detail({
   onQueue: () => void;
 }) {
   const s = c.scores[0];
+  const contacts = salesFacingContacts(c.publicContacts);
   const [tab, setTab] = useState("analyse"),
     [status, setStatus] = useState(c.outreach?.status ?? "NEW"),
     [notes, setNotes] = useState(c.outreach?.notes ?? ""),
@@ -492,20 +494,25 @@ export function Detail({
                 <section className="detail-section">
                   <h3>Offentlige arbejdskontakter</h3>
                   <p className="tiny muted">
-                    Registerroller og publicerede arbejdskontakter med kilde. En
-                    offentlig adresse er ikke et markedsføringssamtykke.
+                    Telefonnumre kommer fra virksomhedens hjemmeside (ikke CVR).
+                    Ledelsesroller fra registret bevares. En offentlig adresse er
+                    ikke et markedsføringssamtykke.
                   </p>
-                  {c.publicContacts.length ? (
-                    c.publicContacts.map((x) => (
+                  {contacts.length ? (
+                    contacts.map((x) => (
                       <div className="contact-row" key={x.id}>
                         <div>
                           <strong>{x.value}</strong>
                           <p className="tiny muted">
                             {x.kind === "ROLE"
                               ? "Ledelsesrolle fra CVR; ingen direkte kontakt verificeret"
-                              : x.name
-                                ? `${x.name} · ${x.title}`
-                                : "Fælles kontakt; ikke knyttet til en person"}
+                              : x.kind === "PHONE"
+                                ? x.name
+                                  ? `${x.name} · ${x.title} · telefon fra hjemmeside`
+                                  : "Telefon fra hjemmeside"
+                                : x.name
+                                  ? `${x.name} · ${x.title}`
+                                  : "Fælles kontakt; ikke knyttet til en person"}
                           </p>
                           <a
                             href={x.sourceUrl}
