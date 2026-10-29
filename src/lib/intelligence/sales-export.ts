@@ -4,6 +4,10 @@ import {
   relevanceLabels,
   stages,
 } from "@/lib/intelligence/config";
+import {
+  primaryWebsitePhone,
+  salesFacingContacts,
+} from "@/lib/intelligence/contacts";
 
 /** Minimal company shape needed to build a salesperson workbook row. */
 export interface ExportCompany {
@@ -91,6 +95,7 @@ export const exportColumns = [
   "Forklaring",
   "Anbefalet vinkel",
   "Signaler",
+  "Telefon",
   "Kontakter",
   "Noter",
   "Næste handling",
@@ -161,9 +166,13 @@ function contactLine(c: ExportCompany["publicContacts"][number]): string {
   const role =
     c.kind === "ROLE"
       ? "Ledelsesrolle (CVR)"
-      : c.name
-        ? [c.name, c.title].filter(Boolean).join(" · ")
-        : "Fælles kontakt";
+      : c.kind === "PHONE"
+        ? c.name
+          ? [c.name, c.title].filter(Boolean).join(" · ") + " · hjemmeside"
+          : "Telefon (hjemmeside)"
+        : c.name
+          ? [c.name, c.title].filter(Boolean).join(" · ")
+          : "Fælles kontakt";
   return `${c.value} (${role})`;
 }
 
@@ -233,7 +242,8 @@ export function toExportRow(c: ExportCompany): ExportRow {
     Forklaring: score?.explanation ?? "",
     "Anbefalet vinkel": score?.angle ?? "",
     Signaler: signalSummary(c, score),
-    Kontakter: c.publicContacts.map(contactLine).join("\n"),
+    Telefon: primaryWebsitePhone(c.publicContacts) ?? "",
+    Kontakter: salesFacingContacts(c.publicContacts).map(contactLine).join("\n"),
     Noter: c.outreach?.notes ?? "",
     "Næste handling": c.outreach?.nextAction ?? "",
     Opfølgningsdato: formatDate(c.outreach?.nextFollowUpAt),
@@ -322,6 +332,7 @@ export async function buildSalesWorkbook(
     const column = sheet.getColumn(col);
     column.width = 36;
   }
+  sheet.getColumn("Telefon").width = 16;
   sheet.getColumn("Hjemmeside").width = 28;
   sheet.getColumn("Virksomhedsnavn").width = 28;
 

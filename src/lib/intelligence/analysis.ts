@@ -5,6 +5,10 @@ import { configSchema, defaultConfig } from "./config";
 import { crawl } from "./crawler";
 import { scoreCompany } from "./scoring";
 import { crawlExplanation } from "./queue";
+import {
+  isRegistryContactSource,
+  primaryWebsitePhone,
+} from "./contacts";
 const json = (v: unknown) =>
   JSON.parse(JSON.stringify(v)) as Prisma.InputJsonValue;
 const hash = (v: string) =>
@@ -119,6 +123,29 @@ export async function analyzeCompany(id: string) {
           update: data,
         });
       }
+      // Drop CVR/registry phones so export/UI never prefer a stale registry number.
+      const phones = await tx.publicContact.findMany({
+        where: {
+          companyId: company.id,
+          kind: { in: ["PHONE", "REGISTRY_PHONE"] },
+        },
+        select: { id: true, sourceUrl: true, kind: true },
+      });
+      const staleIds = phones
+        .filter(
+          (p) =>
+            p.kind === "REGISTRY_PHONE" ||
+            isRegistryContactSource(p.sourceUrl),
+        )
+        .map((p) => p.id);
+      if (staleIds.length)
+        await tx.publicContact.deleteMany({ where: { id: { in: staleIds } } });
+      const websitePhone = primaryWebsitePhone(crawled.contacts);
+      if (websitePhone)
+        await tx.company.update({
+          where: { id: company.id },
+          data: { officialPhone: websitePhone },
+        });
       await tx.enrichmentRun.update({
         where: { id: run.id },
         data: {

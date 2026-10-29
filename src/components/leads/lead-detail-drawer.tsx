@@ -166,6 +166,19 @@ export function LeadDetailDrawer({
               ))}
             </section>
 
+            {(data.company.websitePhone || data.company.officialPhone) && (
+              <section className="rounded-lg border border-slate-200 px-4 py-3">
+                <div className="text-xs text-slate-500">Telefon (hjemmeside)</div>
+                <a
+                  href={`tel:${data.company.websitePhone || data.company.officialPhone}`}
+                  className="mt-0.5 inline-flex items-center gap-1.5 text-base font-semibold text-slate-900 hover:underline"
+                >
+                  <Phone className="h-4 w-4 text-slate-500" />
+                  {data.company.websitePhone || data.company.officialPhone}
+                </a>
+              </section>
+            )}
+
             {/* ---------- Scoping ---------- */}
             <section className="space-y-3">
               <div className="flex items-center justify-between">

@@ -19,6 +19,7 @@ import { crawl } from "./crawler";
 import type { Config } from "./config";
 import { createHash } from "node:crypto";
 import { searchCompanyWebsite, type WebsiteSearch } from "./openai-website";
+import { isRegistryContactSource } from "./contacts";
 const json = (v: unknown) =>
   JSON.parse(JSON.stringify(v)) as Prisma.InputJsonValue;
 const hash = (v: string) =>
@@ -189,6 +190,21 @@ export async function refreshCompany(id: string) {
         },
       });
     }
+    // Never promote CVR/registry phone as the salesperson number — drop any
+    // stale registry PHONE rows (website crawl owns PHONE via analyse).
+    const phones = await tx.publicContact.findMany({
+      where: { companyId: id, kind: { in: ["PHONE", "REGISTRY_PHONE"] } },
+      select: { id: true, sourceUrl: true, kind: true },
+    });
+    const staleIds = phones
+      .filter(
+        (p) =>
+          p.kind === "REGISTRY_PHONE" || isRegistryContactSource(p.sourceUrl),
+      )
+      .map((p) => p.id);
+    if (staleIds.length)
+      await tx.publicContact.deleteMany({ where: { id: { in: staleIds } } });
+    // Intentionally ignore c.phone from the registry profile.
   });
   return { ok: true, eligible };
 }

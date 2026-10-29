@@ -1,13 +1,20 @@
 import { test } from "node:test";
 import { automaticSteps } from "../src/lib/intelligence/automatic-enrichment";
 import assert from "node:assert/strict";
-import { labelledPhones, companyEmail } from "../src/lib/intelligence/contacts";
+import {
+  labelledPhones,
+  companyEmail,
+  isRegistryContactSource,
+  salesFacingContacts,
+  primaryWebsitePhone,
+} from "../src/lib/intelligence/contacts";
 
 test("labelled phones exclude CVR and malformed numbers; shared mail stays on company or approved mail domains", () => {
   assert.deepEqual(labelledPhones("CVR 24256790 · Tlf: +45 23 45 67 89"), [
     "+4523456789",
   ]);
   assert.deepEqual(labelledPhones("Telefon 234567890"), []);
+  assert.deepEqual(labelledPhones("Ring på 33 12 34 56"), ["+4533123456"]);
   assert.ok(companyEmail("info@gmail.com", "example.dk"));
   assert.ok(!companyEmail("info@gmail.com", "example.dk", true));
   assert.ok(!companyEmail("jobs@example.dk", "example.dk"));
@@ -18,6 +25,83 @@ test("labelled phones exclude CVR and malformed numbers; shared mail stays on co
   );
   assert.deepEqual(page.staffLinks, ["https://example.dk/anna"]);
   assert.equal(deduplicateContacts(page.contacts)[0]?.name, null);
+});
+
+test("salesperson phones prefer website crawl and drop CVR registry numbers", () => {
+  assert.ok(isRegistryContactSource("https://api.cvrbasen.dk/v1/companies/10000009"));
+  assert.ok(isRegistryContactSource("https://apicvr.dk/api/v1/10000009"));
+  assert.ok(!isRegistryContactSource("https://example.dk/kontakt"));
+  const mixed = [
+    {
+      kind: "PHONE",
+      value: "+4511223344",
+      name: null,
+      title: null,
+      sourceUrl: "https://api.cvrbasen.dk/v1/companies/10000009",
+    },
+    {
+      kind: "PHONE",
+      value: "+4523456789",
+      name: null,
+      title: null,
+      sourceUrl: "https://example.dk/kontakt",
+    },
+    {
+      kind: "ROLE",
+      value: "Anna Jensen · Direktør",
+      name: "Anna Jensen",
+      title: "Direktør",
+      sourceUrl: "https://apicvr.dk/api/v1/10000009",
+    },
+    {
+      kind: "EMAIL",
+      value: "info@example.dk",
+      name: null,
+      title: null,
+      sourceUrl: "https://example.dk/",
+    },
+  ];
+  const sales = salesFacingContacts(mixed);
+  assert.deepEqual(
+    sales.map((c) => c.value),
+    ["+4523456789", "info@example.dk", "Anna Jensen · Direktør"],
+  );
+  assert.equal(primaryWebsitePhone(mixed), "+4523456789");
+  assert.equal(
+    primaryWebsitePhone([
+      {
+        kind: "PHONE",
+        value: "+4511223344",
+        sourceUrl: "https://api.cvrbasen.dk/v1/companies/10000009",
+      },
+    ]),
+    null,
+  );
+});
+
+test("crawler collects icon-only tel links and schema telephone on contact pages", () => {
+  const page = extractPage(
+    `<html><body>
+      <header><a href="tel:+45 70 12 34 56" aria-label="Ring"></a></header>
+      <main>
+        <p>Kontakt os</p>
+        <span itemprop="telephone">33 44 55 66</span>
+        <a href="tel:88776655"></a>
+      </main>
+      <footer><a href="tel:99887766"><svg></svg></a></footer>
+    </body></html>`,
+    "https://example.dk/kontakt",
+  );
+  const phones = deduplicateContacts(page.contacts)
+    .filter((c) => c.kind === "PHONE")
+    .map((c) => c.value)
+    .sort();
+  assert.deepEqual(phones, [
+    "+4533445566",
+    "+4570123456",
+    "+4588776655",
+    "+4599887766",
+  ]);
 });
 
 test("automatic enrichment defers register calls on budget, provider pause and lease while local steps remain available", () => {

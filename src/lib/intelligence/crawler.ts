@@ -13,6 +13,7 @@ import {
   labelledPhones,
   companyEmail,
   deduplicateContacts,
+  phoneNumber,
   type WebsiteContact,
 } from "./contacts";
 const AGENT = "NIS2LeadResearchBot";
@@ -93,16 +94,33 @@ export async function requestPublic(url: URL): Promise<{
     req.end();
   });
 }
+function pushCompanyPhone(
+  contacts: WebsiteContact[],
+  raw: string,
+  url: string,
+) {
+  const value = phoneNumber(raw);
+  if (value)
+    contacts.push({
+      value,
+      kind: "PHONE",
+      sourceUrl: url,
+      name: null,
+      title: null,
+    });
+}
+
 export function extractPage(html: string, url: string) {
   const $ = cheerio.load(html);
   $(
     'script,style,noscript,svg,template,iframe,form,[hidden],[aria-hidden="true"],[style*="display:none"],[style*="display: none"],[style*="visibility:hidden"],[style*="visibility: hidden"]',
   ).remove();
   const contacts: WebsiteContact[] = [];
-  if (
-    /kontakt|contact/.test(new URL(url).pathname) ||
-    new URL(url).pathname === "/"
-  ) {
+  const path = new URL(url).pathname;
+  const contactPage = /kontakt|contact/.test(path) || path === "/";
+  const host = new URL(url).hostname.replace(/^www\./, "");
+
+  if (contactPage) {
     $('a[href^="mailto:"]').each((_i, el) => {
       const email = $(el)
         .attr("href")!
@@ -110,7 +128,6 @@ export function extractPage(html: string, url: string) {
         .split("?")[0]!
         .trim()
         .toLowerCase();
-      const host = new URL(url).hostname.replace(/^www\./, "");
       if (
         companyEmail(email, host, !!$(el).closest("footer").length) &&
         $(el).text().trim()
@@ -123,28 +140,28 @@ export function extractPage(html: string, url: string) {
           title: null,
         });
     });
-    $('a[href^="tel:"]').each((_i, el) => {
-      const value = $(el)
-        .attr("href")!
-        .slice(4)
-        .replace(/[\s()-]/g, "");
-      const visible = $(el).text().replace(/\D/g, "");
-      if (/^\+?\d{8,15}$/.test(value) && visible.length >= 8)
-        if (
-          $(el).closest("footer,nav,header").length ||
-          !$(el).closest(
-            'article,li,.team-member,.person,.employee,.staff-member,[itemtype="https://schema.org/Person"]',
-          ).length
-        )
-          contacts.push({
-            value,
-            kind: "PHONE",
-            sourceUrl: url,
-            name: null,
-            title: null,
-          });
-    });
   }
+
+  // Company phones: tel:/schema on every page in chrome, plus body on contact pages.
+  // Prefer href over visible text so icon-only links still count; normalize to +45….
+  $('a[href^="tel:"], [itemprop="telephone"]').each((_i, el) => {
+    const item = $(el);
+    const inPerson = item.closest(
+      'article,li,.team-member,.person,.employee,.staff-member,[itemtype="https://schema.org/Person"]',
+    ).length;
+    const inChrome = item.closest("footer,nav,header").length;
+    if (inPerson && !inChrome) return;
+    if (!inChrome && !contactPage) return;
+    const href = item.attr("href");
+    const raw =
+      (href?.toLowerCase().startsWith("tel:")
+        ? href.slice(4).split("?")[0]
+        : null) ??
+      item.attr("content") ??
+      item.text();
+    pushCompanyPhone(contacts, raw ?? "", url);
+  });
+
   const links: string[] = [];
   const staffLinks: string[] = [];
   $("a[href]").each((_i, el) => {
@@ -154,7 +171,7 @@ export function extractPage(html: string, url: string) {
       u.search = "";
       if (
         /medarbejder|team|people|staff|kontakt|contact|om-os|about/i.test(
-          new URL(url).pathname,
+          path,
         ) &&
         /^[\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+){1,4}$/u.test(
           $(el).text().trim(),

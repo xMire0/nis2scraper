@@ -15,7 +15,7 @@ export function labelledPhones(text: string) {
     ...new Set(
       [
         ...text.matchAll(
-          /\b(?:tlf\.?|telefon|phone|mobil)\s*:?\s*((?:(?:\+45|0045)[ .-]*)?[2-9](?:[ .-]*\d){7})(?![ .-]*\d)/gi,
+          /\b(?:tlf\.?|telefon|phone|mobil|call|ring(?:\s*på)?)\s*:?\s*((?:(?:\+45|0045)[ .-]*)?[2-9](?:[ .-]*\d){7})(?![ .-]*\d)/gi,
         ),
       ].flatMap((m) => {
         const value = phoneNumber(m[1]!);
@@ -23,6 +23,62 @@ export function labelledPhones(text: string) {
       }),
     ),
   ];
+}
+
+/** True when a PublicContact sourceUrl points at CVR/registry, not the company site. */
+export function isRegistryContactSource(sourceUrl: string) {
+  try {
+    const host = new URL(sourceUrl).hostname.replace(/^www\./, "").toLowerCase();
+    return (
+      host === "api.cvrbasen.dk" ||
+      host === "cvrbasen.dk" ||
+      host === "apicvr.dk" ||
+      host.endsWith(".apicvr.dk") ||
+      host === "datacvr.virk.dk" ||
+      host.endsWith(".virk.dk") ||
+      host === "cvr.dk" ||
+      host.endsWith(".cvr.dk")
+    );
+  } catch {
+    return /cvrbasen|apicvr|virk\.dk|\bcvr\.dk/i.test(sourceUrl);
+  }
+}
+
+export type SalesContact = {
+  kind: string;
+  value: string;
+  name?: string | null;
+  title?: string | null;
+  sourceUrl: string;
+};
+
+/**
+ * Salesperson-facing contacts: keep website phones/emails and CVR roles;
+ * drop registry phones (stale CVR numbers) and any REGISTRY_PHONE kind.
+ */
+export function salesFacingContacts<T extends SalesContact>(contacts: T[]): T[] {
+  const kept = contacts.filter(
+    (c) =>
+      c.kind !== "REGISTRY_PHONE" &&
+      !(c.kind === "PHONE" && isRegistryContactSource(c.sourceUrl)),
+  );
+  const rank = (c: T) => {
+    if (c.kind === "PHONE") return 0;
+    if (c.kind === "EMAIL") return 1;
+    if (c.kind === "ROLE") return 2;
+    return 3;
+  };
+  return [...kept].sort((a, b) => rank(a) - rank(b));
+}
+
+/** Best website-extracted phone for call/export; never a CVR registry number. */
+export function primaryWebsitePhone(contacts: SalesContact[]): string | null {
+  for (const c of salesFacingContacts(contacts)) {
+    if (c.kind !== "PHONE") continue;
+    const value = phoneNumber(c.value);
+    if (value) return value;
+  }
+  return null;
 }
 export function companyEmail(value: string, host: string, inFooter = false) {
   const email = value.trim().toLowerCase();
@@ -93,9 +149,10 @@ export function staffContacts(html: string, url: string): WebsiteContact[] {
         title,
       });
     item.find('a[href^="mailto:"],a[href^="tel:"]').each((_j, el) => {
-      if (!$(el).text().trim()) return;
       const href = $(el).attr("href")!;
       const kind = href.startsWith("mailto:") ? "EMAIL" : "PHONE";
+      // Icon-only tel: links often have no visible text; still accept a valid href.
+      if (kind === "EMAIL" && !$(el).text().trim()) return;
       const raw = href
         .slice(kind === "EMAIL" ? 7 : 4)
         .split("?")[0]!

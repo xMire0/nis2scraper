@@ -60,6 +60,27 @@ function company(partial: Partial<ExportCompany> & Pick<ExportCompany, "id" | "c
         value: "anne@example.dk",
         sourceUrl: "https://example.dk/kontakt",
       },
+      {
+        kind: "PHONE",
+        name: null,
+        title: null,
+        value: "+4523456789",
+        sourceUrl: "https://example.dk/kontakt",
+      },
+      {
+        kind: "PHONE",
+        name: null,
+        title: null,
+        value: "+4511223344",
+        sourceUrl: "https://api.cvrbasen.dk/v1/companies/10000009",
+      },
+      {
+        kind: "ROLE",
+        name: "Anne Andersen",
+        title: "Direktør",
+        value: "Anne Andersen · Direktør",
+        sourceUrl: "https://api.cvrbasen.dk/v1/companies/10000009",
+      },
     ],
     drafts: [
       {
@@ -89,7 +110,12 @@ test("salesperson rows use Danish headers and sales-friendly values", () => {
   assert.equal(row["ICP-match"], "Stærkt");
   assert.equal(row.Prioritet, "A");
   assert.equal(row.Leadscore, 72);
+  assert.equal(row.Telefon, "+4523456789");
   assert.match(String(row.Kontakter), /anne@example\.dk/);
+  assert.match(String(row.Kontakter), /\+4523456789/);
+  assert.match(String(row.Kontakter), /Telefon \(hjemmeside\)/);
+  assert.match(String(row.Kontakter), /Ledelsesrolle \(CVR\)/);
+  assert.doesNotMatch(String(row.Kontakter), /\+4511223344/);
   assert.match(String(row["Udkast (oversigt)"]), /^E-mail:/);
   assert.match(String(row.Signaler), /managed service/);
   for (const col of exportColumns) assert.ok(col in row);
